@@ -287,6 +287,11 @@ function M.get_execute_command()
   }
 end
 
+---@return table
+function M.get_workspace_commands()
+  return require("copilot.lsp.commands").get_workspace_commands()
+end
+
 ---@return copilot_server_info
 function M.get_copilot_server_info()
   if M.copilot_server_info then

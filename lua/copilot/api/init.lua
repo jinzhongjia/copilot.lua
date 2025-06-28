@@ -154,4 +154,24 @@ end
 ---@alias copilot_window_show_document { uri: string, external?: boolean, takeFocus?: boolean, selection?: boolean }
 ---@alias copilot_window_show_document_result { success: boolean }
 
+-- Next Edit Suggestions API functions
+
+---@alias copilot_nes_accept_params { id: string }
+---@param params copilot_nes_accept_params
+function M.nes_accept_suggestion(client, params, callback)
+  return M.request(client, "workspace/executeCommand", {
+    command = "github.copilot.didAcceptNextEditSuggestionItem",
+    arguments = { params },
+  }, callback)
+end
+
+---@alias copilot_nes_reject_params { id: string }
+---@param params copilot_nes_reject_params
+function M.nes_reject_suggestion(client, params, callback)
+  return M.request(client, "workspace/executeCommand", {
+    command = "github.copilot.didRejectNextEditSuggestionItem",
+    arguments = { params },
+  }, callback)
+end
+
 return M

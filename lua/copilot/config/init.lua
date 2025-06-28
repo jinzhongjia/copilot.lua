@@ -3,6 +3,7 @@ local logger = require("copilot.logger")
 ---@class CopilotConfig
 ---@field panel PanelConfig
 ---@field suggestion SuggestionConfig
+---@field next_edit_suggestions NextEditSuggestionsConfig
 ---@field logger LoggerConfig
 ---@field server ServerConfig
 ---@field filetypes table<string, boolean> Filetypes to enable Copilot for
@@ -20,6 +21,7 @@ local initialized = false
 local M = {
   panel = require("copilot.config.panel").default,
   suggestion = require("copilot.config.suggestion").default,
+  next_edit_suggestions = require("copilot.config.next_edit_suggestions").default,
   logger = require("copilot.config.logger").default,
   server = require("copilot.config.server").default,
   root_dir = require("copilot.config.root_dir").default,
@@ -57,6 +59,7 @@ end
 function M.validate(config)
   vim.validate("panel", config.panel, "table")
   vim.validate("suggestion", config.suggestion, "table")
+  vim.validate("next_edit_suggestions", config.next_edit_suggestions, "table")
   vim.validate("logger", config.logger, "table")
   vim.validate("server", config.server, "table")
   vim.validate("filetypes", config.filetypes, "table")
@@ -70,6 +73,7 @@ function M.validate(config)
 
   require("copilot.config.panel").validate(config.panel)
   require("copilot.config.suggestion").validate(config.suggestion)
+  require("copilot.config.next_edit_suggestions").validate(config.next_edit_suggestions)
   require("copilot.config.logger").validate(config.logger)
   require("copilot.config.server").validate(config.server)
   require("copilot.config.root_dir").validate(config.root_dir)

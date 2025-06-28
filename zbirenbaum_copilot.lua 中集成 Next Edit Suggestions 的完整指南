@@ -1,0 +1,2953 @@
+# zbirenbaum/copilot.lua 中集成 Next Edit Suggestions 的完整指南
+
+**作者**: Manus AI  
+**版本**: 1.0  
+**日期**: 2025年6月25日
+
+## 目录
+
+1. [概述](#概述)
+2. [前置要求](#前置要求)
+3. [架构设计](#架构设计)
+4. [核心模块实现](#核心模块实现)
+5. [LSP 集成扩展](#lsp-集成扩展)
+6. [用户界面实现](#用户界面实现)
+7. [配置系统](#配置系统)
+8. [安装和配置](#安装和配置)
+9. [使用指南](#使用指南)
+10. [故障排除](#故障排除)
+11. [性能优化](#性能优化)
+12. [扩展开发](#扩展开发)
+
+## 概述
+
+Next Edit Suggestions (NES) 是 GitHub Copilot Language Server 的一项创新功能，专门用于智能编辑现有代码。与传统的代码自动补全不同，NES 基于上下文感知的预测性编辑，能够预测开发者下一步可能需要的代码修改，包括错误修复、代码重构、变量重命名等操作。
+
+本指南详细介绍了如何在 zbirenbaum/copilot.lua 插件中集成 Next Edit Suggestions 功能。通过本指南，您将能够：
+
+- 理解 NES 功能的工作原理和技术架构
+- 掌握在 copilot.lua 中集成 NES 的完整实现方法
+- 学会配置和自定义 NES 功能以满足个人需求
+- 了解如何优化 NES 性能和用户体验
+- 掌握故障排除和问题诊断的方法
+
+### NES 功能特点
+
+Next Edit Suggestions 具有以下核心特点：
+
+**智能预测性编辑**: NES 不仅仅是代码补全，而是基于代码上下文和开发者行为模式的智能编辑建议。它能够分析当前代码状态，预测开发者可能需要进行的修改操作。
+
+**多场景适用性**: NES 适用于多种编程场景，包括但不限于错误修复、代码重构、变量重命名、逻辑优化、代码风格调整等。这使得它成为一个全方位的编程助手。
+
+**上下文感知**: NES 充分利用文件内容、项目结构、编程语言特性等上下文信息，提供更加精准和相关的编辑建议。
+
+**非侵入式集成**: NES 设计为与现有的代码补全功能并行工作，不会干扰传统的编程工作流程。
+
+### 技术背景
+
+NES 功能基于 Language Server Protocol (LSP) 实现，通过扩展标准 LSP 协议来支持预测性编辑功能。主要涉及以下技术组件：
+
+**LSP 协议扩展**: NES 使用自定义的 LSP 消息类型来传递编辑建议，包括 `textDocument/publishNextEditSuggestions` 通知和相关的命令处理。
+
+**事件驱动架构**: NES 通过监听文档变化事件来触发建议生成，采用事件驱动的架构模式确保及时响应用户操作。
+
+**异步处理机制**: 为了避免阻塞用户界面，NES 采用异步处理机制来生成和显示建议，确保流畅的用户体验。
+
+## 前置要求
+
+在开始集成 Next Edit Suggestions 功能之前，请确保您的开发环境满足以下要求：
+
+### 软件要求
+
+**Neovim 版本**: 需要 Neovim 0.10.0 或更高版本。NES 功能依赖于 Neovim 的现代 LSP 客户端实现和浮动窗口功能。
+
+**Node.js 环境**: 需要 Node.js v20 或更高版本。GitHub Copilot Language Server 基于 Node.js 运行，需要现代的 JavaScript 运行时环境。
+
+**GitHub Copilot Language Server**: 需要安装 @github/copilot-language-server 1.337.0 或更高版本。这个版本包含了 Next Edit Suggestions 功能的完整实现。
+
+**copilot.lua 插件**: 需要 zbirenbaum/copilot.lua 插件作为基础。本指南基于该插件的架构进行扩展。
+
+### 依赖库要求
+
+**Lua 模块**: 需要确保 Neovim 的 Lua 环境包含必要的模块，包括 `vim.lsp`、`vim.api`、`vim.fn` 等核心模块。
+
+**LSP 客户端**: 需要一个功能完整的 LSP 客户端实现，支持自定义消息处理和事件监听。
+
+### 权限要求
+
+**GitHub Copilot 订阅**: 需要有效的 GitHub Copilot 订阅。NES 功能是 GitHub Copilot 的高级功能，需要相应的授权。
+
+**网络访问**: 需要稳定的网络连接以访问 GitHub Copilot 服务。NES 功能需要与 GitHub 的服务器进行实时通信。
+
+### 验证环境
+
+在开始实施之前，建议运行以下命令验证环境：
+
+```bash
+# 检查 Neovim 版本
+nvim --version
+
+# 检查 Node.js 版本  
+node --version
+
+# 检查 npm 版本
+npm --version
+
+# 验证 GitHub Copilot Language Server 安装
+npm list -g @github/copilot-language-server
+```
+
+确保所有组件都满足版本要求后，即可开始 NES 功能的集成工作。
+
+
+## 架构设计
+
+### 整体架构概览
+
+Next Edit Suggestions 的集成采用模块化架构设计，在保持与现有 copilot.lua 插件兼容的同时，添加新的 NES 功能模块。整体架构遵循单一职责原则和开放封闭原则，确保功能的可扩展性和可维护性。
+
+架构设计的核心思想是将 NES 功能作为一个独立的模块集成到现有的插件架构中，通过明确定义的接口与其他模块进行交互。这种设计方式具有以下优势：
+
+**模块化设计**: 每个功能模块都有明确的职责边界，便于独立开发、测试和维护。NES 模块可以独立于其他功能模块进行开发和调试。
+
+**松耦合架构**: 模块之间通过定义良好的接口进行通信，减少了模块间的依赖关系。这使得系统更加灵活，便于后续的功能扩展和修改。
+
+**可插拔设计**: NES 功能可以作为可选模块进行启用或禁用，不会影响插件的核心功能。用户可以根据需要选择是否使用 NES 功能。
+
+### 模块层次结构
+
+整个架构分为四个主要层次，每个层次都有明确的职责和功能：
+
+**表示层 (Presentation Layer)**: 负责用户界面的显示和交互处理。包括 NES 建议的可视化显示、用户输入的处理、键盘映射的管理等。这一层直接与用户进行交互，提供直观的用户体验。
+
+**业务逻辑层 (Business Logic Layer)**: 包含 NES 功能的核心业务逻辑，如建议的生成、过滤、排序、状态管理等。这一层实现了 NES 功能的主要算法和处理逻辑。
+
+**服务层 (Service Layer)**: 提供与 LSP 服务器通信的服务接口，处理 LSP 消息的发送和接收。这一层封装了与 GitHub Copilot Language Server 的通信细节。
+
+**数据层 (Data Layer)**: 负责数据的存储和管理，包括建议数据的缓存、配置信息的存储等。这一层提供了数据持久化和访问的功能。
+
+### 核心组件设计
+
+#### NES 管理器 (NES Manager)
+
+NES 管理器是整个 NES 功能的核心组件，负责协调各个子模块的工作。它采用单例模式设计，确保在整个插件生命周期中只有一个管理器实例。
+
+管理器的主要职责包括：
+
+**生命周期管理**: 管理 NES 功能的初始化、启动、停止和清理过程。确保资源的正确分配和释放。
+
+**状态协调**: 维护 NES 功能的全局状态，协调各个子模块之间的状态同步。
+
+**事件分发**: 接收来自 LSP 服务器和用户界面的事件，并将其分发给相应的处理模块。
+
+**配置管理**: 管理 NES 功能的配置信息，提供配置的读取、更新和验证功能。
+
+#### 建议处理器 (Suggestion Processor)
+
+建议处理器负责处理从 LSP 服务器接收到的 NES 建议数据。它实现了建议的解析、验证、过滤和转换功能。
+
+处理器的核心功能包括：
+
+**数据解析**: 将从 LSP 服务器接收到的原始建议数据解析为内部数据结构。
+
+**建议验证**: 验证建议数据的完整性和有效性，过滤掉无效或不适用的建议。
+
+**智能过滤**: 根据用户配置和上下文信息对建议进行智能过滤，提高建议的相关性。
+
+**优先级排序**: 根据建议的置信度、相关性等因素对建议进行排序，确保最相关的建议优先显示。
+
+#### 显示控制器 (Display Controller)
+
+显示控制器负责管理 NES 建议的可视化显示。它支持多种显示模式，包括浮动窗口、内联高亮、状态栏提示等。
+
+控制器的主要功能包括：
+
+**多模式显示**: 支持浮动窗口、内联高亮、状态栏等多种显示模式，用户可以根据偏好进行选择。
+
+**动态更新**: 实时更新建议的显示内容，响应用户的操作和状态变化。
+
+**样式管理**: 管理建议显示的样式和主题，支持自定义颜色、字体、边框等视觉元素。
+
+**交互处理**: 处理用户与建议显示界面的交互，如点击、键盘操作等。
+
+### 数据流设计
+
+NES 功能的数据流设计遵循单向数据流原则，确保数据流向的清晰性和可预测性。
+
+#### 建议生成流程
+
+建议生成的数据流程如下：
+
+1. **触发事件**: 用户编辑文档触发 `textDocument/didChange` 事件
+2. **事件处理**: NES 管理器接收事件并进行防抖处理
+3. **请求发送**: 向 LSP 服务器发送建议请求
+4. **建议接收**: 接收 `textDocument/publishNextEditSuggestions` 通知
+5. **数据处理**: 建议处理器解析和处理建议数据
+6. **显示更新**: 显示控制器更新建议的可视化显示
+
+#### 用户交互流程
+
+用户交互的数据流程如下：
+
+1. **用户操作**: 用户通过键盘或鼠标与建议进行交互
+2. **事件捕获**: 显示控制器捕获用户操作事件
+3. **命令生成**: 根据用户操作生成相应的 LSP 命令
+4. **命令发送**: 向 LSP 服务器发送命令（如接受或拒绝建议）
+5. **状态更新**: 更新建议的状态和显示
+6. **反馈处理**: 处理 LSP 服务器的响应和反馈
+
+### 错误处理策略
+
+NES 功能采用多层次的错误处理策略，确保系统的稳定性和可靠性：
+
+**优雅降级**: 当 NES 功能出现错误时，系统会优雅地降级到基本功能，不影响用户的正常编程工作。
+
+**错误隔离**: 错误被限制在特定的模块内，不会传播到其他功能模块。
+
+**自动恢复**: 系统具备自动错误恢复能力，能够在错误条件消除后自动恢复正常功能。
+
+**详细日志**: 提供详细的错误日志和诊断信息，便于问题的定位和解决。
+
+## 核心模块实现
+
+### NES 主模块实现
+
+NES 主模块是整个功能的入口点和协调中心。它负责初始化各个子模块，管理模块间的通信，并提供统一的外部接口。
+
+#### 模块结构设计
+
+```lua
+-- lua/copilot/nes/init.lua
+local api = require("copilot.api")
+local config = require("copilot.config")
+local logger = require("copilot.logger")
+local util = require("copilot.util")
+
+local manager = require("copilot.nes.manager")
+local display = require("copilot.nes.display")
+local handlers = require("copilot.nes.handlers")
+
+local M = {}
+
+-- 模块状态
+local state = {
+  initialized = false,
+  enabled = false,
+  client_id = nil,
+  current_buffer = nil,
+  suggestions = {},
+  active_suggestion = nil
+}
+
+-- 模块配置
+local default_config = {
+  enabled = true,
+  auto_trigger = true,
+  debounce = 500,
+  max_suggestions = 5,
+  display = {
+    type = "float",
+    auto_show = true,
+    timeout = 5000
+  },
+  keymaps = {
+    accept = "<C-y>",
+    reject = "<C-n>",
+    next = "<C-]>",
+    prev = "<C-[>",
+    toggle = "<leader>cn"
+  },
+  filter = {
+    min_confidence = 0.5,
+    exclude_filetypes = { "help", "alpha", "dashboard" }
+  }
+}
+```
+
+#### 初始化函数实现
+
+初始化函数负责设置 NES 功能的基础环境，包括配置加载、事件监听器注册、键盘映射设置等：
+
+```lua
+-- 初始化 NES 功能
+function M.setup(opts)
+  if state.initialized then
+    logger.warn("NES module already initialized")
+    return
+  end
+  
+  -- 合并用户配置
+  local nes_config = vim.tbl_deep_extend("force", default_config, opts or {})
+  
+  -- 验证配置
+  if not M._validate_config(nes_config) then
+    logger.error("Invalid NES configuration")
+    return false
+  end
+  
+  -- 存储配置
+  state.config = nes_config
+  
+  -- 初始化子模块
+  manager.setup(nes_config)
+  display.setup(nes_config.display)
+  handlers.setup(nes_config)
+  
+  -- 注册事件监听器
+  M._register_autocmds()
+  
+  -- 设置键盘映射
+  M._setup_keymaps(nes_config.keymaps)
+  
+  -- 标记为已初始化
+  state.initialized = true
+  state.enabled = nes_config.enabled
+  
+  logger.info("NES module initialized successfully")
+  return true
+end
+
+-- 配置验证函数
+function M._validate_config(config)
+  -- 验证必需字段
+  if type(config.enabled) ~= "boolean" then
+    logger.error("config.enabled must be boolean")
+    return false
+  end
+  
+  if type(config.debounce) ~= "number" or config.debounce < 0 then
+    logger.error("config.debounce must be non-negative number")
+    return false
+  end
+  
+  if type(config.max_suggestions) ~= "number" or config.max_suggestions < 1 then
+    logger.error("config.max_suggestions must be positive number")
+    return false
+  end
+  
+  -- 验证显示配置
+  if config.display then
+    local valid_types = { "float", "inline", "both" }
+    if not vim.tbl_contains(valid_types, config.display.type) then
+      logger.error("config.display.type must be one of: " .. table.concat(valid_types, ", "))
+      return false
+    end
+  end
+  
+  return true
+end
+```
+
+#### 事件监听器注册
+
+事件监听器负责响应文档变化、光标移动等事件，触发相应的 NES 处理逻辑：
+
+```lua
+-- 注册自动命令
+function M._register_autocmds()
+  local augroup = vim.api.nvim_create_augroup("CopilotNES", { clear = true })
+  
+  -- 文档变化事件
+  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+    group = augroup,
+    callback = function(args)
+      if not state.enabled then return end
+      
+      local bufnr = args.buf
+      if M._should_process_buffer(bufnr) then
+        M._on_text_changed(bufnr)
+      end
+    end,
+    desc = "Trigger NES on text change"
+  })
+  
+  -- 光标移动事件
+  vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
+    group = augroup,
+    callback = function(args)
+      if not state.enabled then return end
+      
+      local bufnr = args.buf
+      if M._should_process_buffer(bufnr) then
+        M._on_cursor_moved(bufnr)
+      end
+    end,
+    desc = "Update NES on cursor move"
+  })
+  
+  -- 缓冲区离开事件
+  vim.api.nvim_create_autocmd("BufLeave", {
+    group = augroup,
+    callback = function(args)
+      local bufnr = args.buf
+      M._on_buf_leave(bufnr)
+    end,
+    desc = "Clean up NES on buffer leave"
+  })
+  
+  -- LSP 客户端附加事件
+  vim.api.nvim_create_autocmd("LspAttach", {
+    group = augroup,
+    callback = function(args)
+      local client = vim.lsp.get_client_by_id(args.data.client_id)
+      if client and client.name == "copilot" then
+        M._on_lsp_attach(client, args.buf)
+      end
+    end,
+    desc = "Setup NES on LSP attach"
+  })
+end
+
+-- 检查是否应该处理该缓冲区
+function M._should_process_buffer(bufnr)
+  -- 检查文件类型
+  local filetype = vim.api.nvim_buf_get_option(bufnr, "filetype")
+  if vim.tbl_contains(state.config.filter.exclude_filetypes, filetype) then
+    return false
+  end
+  
+  -- 检查缓冲区类型
+  local buftype = vim.api.nvim_buf_get_option(bufnr, "buftype")
+  if buftype ~= "" then
+    return false
+  end
+  
+  -- 检查是否为可修改缓冲区
+  if not vim.api.nvim_buf_get_option(bufnr, "modifiable") then
+    return false
+  end
+  
+  return true
+end
+```
+
+#### 核心事件处理函数
+
+这些函数处理各种事件，协调 NES 功能的运行：
+
+```lua
+-- 处理文档变化事件
+function M._on_text_changed(bufnr)
+  -- 防抖处理
+  if state.debounce_timer then
+    vim.fn.timer_stop(state.debounce_timer)
+  end
+  
+  state.debounce_timer = vim.fn.timer_start(state.config.debounce, function()
+    M._request_suggestions(bufnr)
+  end)
+end
+
+-- 处理光标移动事件
+function M._on_cursor_moved(bufnr)
+  -- 更新当前建议的显示
+  display.update_cursor_position(bufnr)
+  
+  -- 检查是否需要隐藏建议
+  local cursor_pos = vim.api.nvim_win_get_cursor(0)
+  if state.active_suggestion then
+    local suggestion_range = state.active_suggestion.range
+    if not M._cursor_in_range(cursor_pos, suggestion_range) then
+      M.hide_current_suggestion()
+    end
+  end
+end
+
+-- 处理缓冲区离开事件
+function M._on_buf_leave(bufnr)
+  -- 清理该缓冲区的建议
+  M.clear_suggestions(bufnr)
+  
+  -- 隐藏显示
+  if state.current_buffer == bufnr then
+    display.hide_all()
+    state.current_buffer = nil
+  end
+end
+
+-- 处理 LSP 客户端附加事件
+function M._on_lsp_attach(client, bufnr)
+  state.client_id = client.id
+  logger.info("NES attached to LSP client: " .. client.name)
+  
+  -- 检查服务器是否支持 NES
+  if M._check_nes_support(client) then
+    logger.info("NES support detected")
+  else
+    logger.warn("NES not supported by server")
+  end
+end
+
+-- 检查服务器是否支持 NES
+function M._check_nes_support(client)
+  -- 检查服务器能力
+  local capabilities = client.server_capabilities
+  if not capabilities then
+    return false
+  end
+  
+  -- 检查是否支持自定义命令
+  if capabilities.executeCommandProvider then
+    local commands = capabilities.executeCommandProvider.commands or {}
+    for _, command in ipairs(commands) do
+      if command == "github.copilot.didAcceptNextEditSuggestionItem" then
+        return true
+      end
+    end
+  end
+  
+  return false
+end
+```
+
+
+### 建议管理器实现
+
+建议管理器是 NES 功能的核心组件，负责管理建议的生命周期、状态跟踪和数据处理。它采用高效的数据结构和算法来确保建议处理的性能和准确性。
+
+#### 管理器数据结构
+
+```lua
+-- lua/copilot/nes/manager.lua
+local logger = require("copilot.logger")
+local util = require("copilot.util")
+
+local M = {}
+
+-- 建议数据结构
+local Suggestion = {}
+Suggestion.__index = Suggestion
+
+function Suggestion:new(data)
+  local obj = {
+    id = data.id or util.generate_id(),
+    type = "next_edit_suggestion",
+    range = data.range,
+    new_text = data.new_text,
+    description = data.description or "",
+    confidence = data.confidence or 0.5,
+    created_at = os.time(),
+    status = "pending", -- pending, accepted, rejected, expired
+    metadata = data.metadata or {}
+  }
+  setmetatable(obj, self)
+  return obj
+end
+
+function Suggestion:is_valid()
+  return self.range and self.new_text and self.status == "pending"
+end
+
+function Suggestion:is_expired(timeout)
+  return (os.time() - self.created_at) > (timeout or 5)
+end
+
+function Suggestion:accept()
+  self.status = "accepted"
+  self.accepted_at = os.time()
+end
+
+function Suggestion:reject()
+  self.status = "rejected"
+  self.rejected_at = os.time()
+end
+
+-- 管理器状态
+local manager_state = {
+  suggestions = {}, -- 按缓冲区 ID 组织的建议
+  active_suggestions = {}, -- 当前活跃的建议
+  config = {},
+  stats = {
+    total_suggestions = 0,
+    accepted_suggestions = 0,
+    rejected_suggestions = 0
+  }
+}
+```
+
+#### 建议处理核心逻辑
+
+```lua
+-- 初始化管理器
+function M.setup(config)
+  manager_state.config = config
+  logger.info("NES manager initialized")
+end
+
+-- 添加新建议
+function M.add_suggestions(bufnr, suggestions_data)
+  if not suggestions_data or #suggestions_data == 0 then
+    return
+  end
+  
+  -- 初始化缓冲区建议列表
+  if not manager_state.suggestions[bufnr] then
+    manager_state.suggestions[bufnr] = {}
+  end
+  
+  local buffer_suggestions = manager_state.suggestions[bufnr]
+  local new_suggestions = {}
+  
+  for _, data in ipairs(suggestions_data) do
+    -- 创建建议对象
+    local suggestion = Suggestion:new(data)
+    
+    -- 验证建议
+    if suggestion:is_valid() and M._should_accept_suggestion(suggestion) then
+      table.insert(buffer_suggestions, suggestion)
+      table.insert(new_suggestions, suggestion)
+      manager_state.stats.total_suggestions = manager_state.stats.total_suggestions + 1
+    end
+  end
+  
+  -- 清理过期建议
+  M._cleanup_expired_suggestions(bufnr)
+  
+  -- 排序建议
+  M._sort_suggestions(bufnr)
+  
+  -- 限制建议数量
+  M._limit_suggestions(bufnr)
+  
+  logger.info(string.format("Added %d new suggestions for buffer %d", #new_suggestions, bufnr))
+  return new_suggestions
+end
+
+-- 检查是否应该接受建议
+function M._should_accept_suggestion(suggestion)
+  -- 检查置信度
+  if suggestion.confidence < manager_state.config.filter.min_confidence then
+    return false
+  end
+  
+  -- 检查文本长度
+  if #suggestion.new_text > 1000 then -- 限制建议文本长度
+    return false
+  end
+  
+  -- 检查范围有效性
+  if not M._is_valid_range(suggestion.range) then
+    return false
+  end
+  
+  return true
+end
+
+-- 验证范围有效性
+function M._is_valid_range(range)
+  if not range or not range.start or not range["end"] then
+    return false
+  end
+  
+  local start_line = range.start.line
+  local start_char = range.start.character
+  local end_line = range["end"].line
+  local end_char = range["end"].character
+  
+  -- 检查行号和字符位置的有效性
+  if start_line < 0 or end_line < 0 or start_char < 0 or end_char < 0 then
+    return false
+  end
+  
+  -- 检查范围顺序
+  if start_line > end_line or (start_line == end_line and start_char > end_char) then
+    return false
+  end
+  
+  return true
+end
+
+-- 排序建议
+function M._sort_suggestions(bufnr)
+  local suggestions = manager_state.suggestions[bufnr]
+  if not suggestions then return end
+  
+  table.sort(suggestions, function(a, b)
+    -- 按置信度降序排列
+    if a.confidence ~= b.confidence then
+      return a.confidence > b.confidence
+    end
+    
+    -- 按创建时间升序排列
+    return a.created_at < b.created_at
+  end)
+end
+
+-- 限制建议数量
+function M._limit_suggestions(bufnr)
+  local suggestions = manager_state.suggestions[bufnr]
+  if not suggestions then return end
+  
+  local max_suggestions = manager_state.config.max_suggestions
+  if #suggestions > max_suggestions then
+    -- 移除多余的建议
+    for i = max_suggestions + 1, #suggestions do
+      suggestions[i] = nil
+    end
+  end
+end
+
+-- 清理过期建议
+function M._cleanup_expired_suggestions(bufnr)
+  local suggestions = manager_state.suggestions[bufnr]
+  if not suggestions then return end
+  
+  local timeout = manager_state.config.display.timeout / 1000 -- 转换为秒
+  local valid_suggestions = {}
+  
+  for _, suggestion in ipairs(suggestions) do
+    if not suggestion:is_expired(timeout) and suggestion.status == "pending" then
+      table.insert(valid_suggestions, suggestion)
+    end
+  end
+  
+  manager_state.suggestions[bufnr] = valid_suggestions
+end
+
+-- 获取缓冲区的建议
+function M.get_suggestions(bufnr)
+  return manager_state.suggestions[bufnr] or {}
+end
+
+-- 获取最佳建议
+function M.get_best_suggestion(bufnr)
+  local suggestions = M.get_suggestions(bufnr)
+  if #suggestions > 0 then
+    return suggestions[1] -- 已排序，第一个是最佳的
+  end
+  return nil
+end
+
+-- 接受建议
+function M.accept_suggestion(suggestion_id, bufnr)
+  local suggestions = manager_state.suggestions[bufnr]
+  if not suggestions then return false end
+  
+  for _, suggestion in ipairs(suggestions) do
+    if suggestion.id == suggestion_id then
+      suggestion:accept()
+      manager_state.stats.accepted_suggestions = manager_state.stats.accepted_suggestions + 1
+      logger.info("Suggestion accepted: " .. suggestion_id)
+      return true
+    end
+  end
+  
+  return false
+end
+
+-- 拒绝建议
+function M.reject_suggestion(suggestion_id, bufnr)
+  local suggestions = manager_state.suggestions[bufnr]
+  if not suggestions then return false end
+  
+  for _, suggestion in ipairs(suggestions) do
+    if suggestion.id == suggestion_id then
+      suggestion:reject()
+      manager_state.stats.rejected_suggestions = manager_state.stats.rejected_suggestions + 1
+      logger.info("Suggestion rejected: " .. suggestion_id)
+      return true
+    end
+  end
+  
+  return false
+end
+
+-- 清理缓冲区建议
+function M.clear_suggestions(bufnr)
+  if manager_state.suggestions[bufnr] then
+    manager_state.suggestions[bufnr] = {}
+    logger.info("Cleared suggestions for buffer: " .. bufnr)
+  end
+end
+
+-- 获取统计信息
+function M.get_stats()
+  return vim.deepcopy(manager_state.stats)
+end
+
+return M
+```
+
+## LSP 集成扩展
+
+LSP 集成扩展是 NES 功能与 GitHub Copilot Language Server 通信的桥梁。它负责处理 LSP 协议的扩展消息，管理与服务器的通信，并确保消息的正确路由和处理。
+
+### LSP 处理器扩展
+
+在现有的 `lua/copilot/lsp/init.lua` 文件中，我们需要添加对 NES 相关 LSP 消息的处理支持：
+
+```lua
+-- 在 lua/copilot/lsp/init.lua 中添加以下内容
+
+local nes = require("copilot.nes")
+local logger = require("copilot.logger")
+
+-- NES 相关的 LSP 处理器
+local nes_handlers = {
+  -- 处理 Next Edit Suggestions 通知
+  ["textDocument/publishNextEditSuggestions"] = function(err, result, ctx, config)
+    if err then
+      logger.error("Error in publishNextEditSuggestions: " .. vim.inspect(err))
+      return
+    end
+    
+    if not result or not result.suggestions then
+      logger.debug("No suggestions received")
+      return
+    end
+    
+    local bufnr = ctx.bufnr
+    local client_id = ctx.client_id
+    
+    logger.debug(string.format("Received %d NES suggestions for buffer %d", 
+                              #result.suggestions, bufnr))
+    
+    -- 处理建议
+    nes.handle_suggestions(result.suggestions, bufnr, client_id)
+  end,
+  
+  -- 处理接受建议的响应
+  ["github.copilot.didAcceptNextEditSuggestionItem"] = function(err, result, ctx, config)
+    if err then
+      logger.error("Error in didAcceptNextEditSuggestionItem: " .. vim.inspect(err))
+      return
+    end
+    
+    logger.debug("Accept suggestion response received")
+    nes.handle_accept_response(result, ctx.client_id)
+  end,
+  
+  -- 处理拒绝建议的响应
+  ["github.copilot.didRejectNextEditSuggestionItem"] = function(err, result, ctx, config)
+    if err then
+      logger.error("Error in didRejectNextEditSuggestionItem: " .. vim.inspect(err))
+      return
+    end
+    
+    logger.debug("Reject suggestion response received")
+    nes.handle_reject_response(result, ctx.client_id)
+  end
+}
+
+-- 扩展现有的 setup 函数
+local original_setup = M.setup
+function M.setup(server_config, copilot_node_command)
+  -- 调用原始 setup 函数
+  local result = original_setup(server_config, copilot_node_command)
+  
+  -- 添加 NES 处理器
+  if server_config.handlers then
+    server_config.handlers = vim.tbl_extend("force", server_config.handlers, nes_handlers)
+  else
+    server_config.handlers = nes_handlers
+  end
+  
+  logger.info("NES LSP handlers registered")
+  return result
+end
+
+-- 扩展命令执行器
+local original_get_execute_command = M.get_execute_command
+function M.get_execute_command()
+  local commands = original_get_execute_command()
+  
+  -- 添加 NES 相关命令
+  local nes_commands = {
+    "github.copilot.didAcceptNextEditSuggestionItem",
+    "github.copilot.didRejectNextEditSuggestionItem",
+  }
+  
+  for _, command in ipairs(nes_commands) do
+    table.insert(commands, command)
+  end
+  
+  return commands
+end
+```
+
+### LSP 消息发送接口
+
+为了与 LSP 服务器进行通信，我们需要实现发送 NES 相关消息的接口：
+
+```lua
+-- 在 lua/copilot/nes/lsp_client.lua 中实现
+
+local M = {}
+
+-- 请求 Next Edit Suggestions
+function M.request_suggestions(bufnr, client_id)
+  local client = vim.lsp.get_client_by_id(client_id)
+  if not client then
+    logger.error("LSP client not found: " .. client_id)
+    return false
+  end
+  
+  -- 获取文档信息
+  local uri = vim.uri_from_bufnr(bufnr)
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local text = table.concat(lines, "\n")
+  
+  -- 获取光标位置
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local position = {
+    line = cursor[1] - 1, -- LSP 使用 0 基索引
+    character = cursor[2]
+  }
+  
+  -- 构建请求参数
+  local params = {
+    textDocument = {
+      uri = uri,
+      version = vim.lsp.util.buf_versions[bufnr] or 0
+    },
+    position = position,
+    context = {
+      triggerKind = 1, -- 手动触发
+      triggerCharacter = nil
+    }
+  }
+  
+  -- 发送请求（注意：这是一个自定义方法，可能需要根据实际 LSP 服务器实现调整）
+  client.request("textDocument/nextEditSuggestions", params, function(err, result)
+    if err then
+      logger.error("Error requesting NES: " .. vim.inspect(err))
+      return
+    end
+    
+    if result and result.suggestions then
+      require("copilot.nes").handle_suggestions(result.suggestions, bufnr, client_id)
+    end
+  end, bufnr)
+  
+  return true
+end
+
+-- 发送接受建议命令
+function M.accept_suggestion(suggestion_id, bufnr, client_id)
+  local client = vim.lsp.get_client_by_id(client_id)
+  if not client then
+    logger.error("LSP client not found: " .. client_id)
+    return false
+  end
+  
+  local params = {
+    arguments = {
+      suggestionId = suggestion_id,
+      bufnr = bufnr
+    }
+  }
+  
+  client.request("workspace/executeCommand", {
+    command = "github.copilot.didAcceptNextEditSuggestionItem",
+    arguments = { params }
+  }, function(err, result)
+    if err then
+      logger.error("Error accepting suggestion: " .. vim.inspect(err))
+    else
+      logger.debug("Suggestion accepted successfully")
+    end
+  end, bufnr)
+  
+  return true
+end
+
+-- 发送拒绝建议命令
+function M.reject_suggestion(suggestion_id, bufnr, client_id)
+  local client = vim.lsp.get_client_by_id(client_id)
+  if not client then
+    logger.error("LSP client not found: " .. client_id)
+    return false
+  end
+  
+  local params = {
+    arguments = {
+      suggestionId = suggestion_id,
+      bufnr = bufnr
+    }
+  }
+  
+  client.request("workspace/executeCommand", {
+    command = "github.copilot.didRejectNextEditSuggestionItem", 
+    arguments = { params }
+  }, function(err, result)
+    if err then
+      logger.error("Error rejecting suggestion: " .. vim.inspect(err))
+    else
+      logger.debug("Suggestion rejected successfully")
+    end
+  end, bufnr)
+  
+  return true
+end
+
+-- 发送文档变化通知
+function M.notify_text_changed(bufnr, client_id, changes)
+  local client = vim.lsp.get_client_by_id(client_id)
+  if not client then
+    return false
+  end
+  
+  local uri = vim.uri_from_bufnr(bufnr)
+  local version = vim.lsp.util.buf_versions[bufnr] or 0
+  
+  local params = {
+    textDocument = {
+      uri = uri,
+      version = version
+    },
+    contentChanges = changes
+  }
+  
+  client.notify("textDocument/didChange", params)
+  return true
+end
+
+return M
+```
+
+### 协议适配层
+
+为了处理不同版本的 LSP 服务器和协议变化，我们实现一个协议适配层：
+
+```lua
+-- lua/copilot/nes/protocol_adapter.lua
+
+local M = {}
+
+-- 协议版本检测
+function M.detect_protocol_version(client)
+  local capabilities = client.server_capabilities
+  if not capabilities then
+    return "unknown"
+  end
+  
+  -- 检查是否支持 NES 相关能力
+  if capabilities.nextEditSuggestionsProvider then
+    return "v2" -- 假设的新版本协议
+  elseif capabilities.executeCommandProvider then
+    local commands = capabilities.executeCommandProvider.commands or {}
+    for _, command in ipairs(commands) do
+      if command:match("nextEditSuggestion") then
+        return "v1" -- 当前版本协议
+      end
+    end
+  end
+  
+  return "unsupported"
+end
+
+-- 适配建议数据格式
+function M.adapt_suggestions(suggestions, protocol_version)
+  if protocol_version == "v1" then
+    return M._adapt_v1_suggestions(suggestions)
+  elseif protocol_version == "v2" then
+    return M._adapt_v2_suggestions(suggestions)
+  else
+    logger.warn("Unsupported protocol version: " .. protocol_version)
+    return {}
+  end
+end
+
+-- 适配 v1 协议建议格式
+function M._adapt_v1_suggestions(suggestions)
+  local adapted = {}
+  
+  for _, suggestion in ipairs(suggestions) do
+    table.insert(adapted, {
+      id = suggestion.id or util.generate_id(),
+      range = suggestion.range,
+      new_text = suggestion.newText or suggestion.text,
+      description = suggestion.description or "",
+      confidence = suggestion.confidence or 0.5,
+      metadata = suggestion.metadata or {}
+    })
+  end
+  
+  return adapted
+end
+
+-- 适配 v2 协议建议格式（假设的未来版本）
+function M._adapt_v2_suggestions(suggestions)
+  local adapted = {}
+  
+  for _, suggestion in ipairs(suggestions) do
+    table.insert(adapted, {
+      id = suggestion.suggestionId,
+      range = {
+        start = suggestion.range.start,
+        ["end"] = suggestion.range["end"]
+      },
+      new_text = suggestion.replacementText,
+      description = suggestion.title or "",
+      confidence = suggestion.score or 0.5,
+      metadata = {
+        category = suggestion.category,
+        reasoning = suggestion.reasoning
+      }
+    })
+  end
+  
+  return adapted
+end
+
+-- 适配命令参数格式
+function M.adapt_command_params(command, params, protocol_version)
+  if protocol_version == "v1" then
+    return M._adapt_v1_command_params(command, params)
+  elseif protocol_version == "v2" then
+    return M._adapt_v2_command_params(command, params)
+  else
+    return params
+  end
+end
+
+function M._adapt_v1_command_params(command, params)
+  -- v1 协议的参数格式适配
+  return params
+end
+
+function M._adapt_v2_command_params(command, params)
+  -- v2 协议的参数格式适配
+  return params
+end
+
+return M
+```
+
+
+## 用户界面实现
+
+用户界面是 NES 功能与用户交互的重要组件。它负责以直观、美观的方式展示建议，并提供便捷的交互方式让用户接受或拒绝建议。我们的设计支持多种显示模式，以适应不同用户的偏好和使用场景。
+
+### 显示控制器实现
+
+显示控制器是用户界面的核心组件，负责管理所有的显示逻辑和用户交互：
+
+```lua
+-- lua/copilot/nes/display.lua
+local api = vim.api
+local fn = vim.fn
+
+local M = {}
+
+-- 显示状态
+local display_state = {
+  config = {},
+  active_windows = {}, -- 活跃的浮动窗口
+  active_highlights = {}, -- 活跃的高亮
+  namespace_id = nil, -- 命名空间 ID
+  current_suggestion = nil -- 当前显示的建议
+}
+
+-- 高亮组定义
+local highlight_groups = {
+  CopilotNESRange = { bg = "#3e4451", fg = "#abb2bf" },
+  CopilotNESText = { bg = "#2c313c", fg = "#98c379" },
+  CopilotNESBorder = { fg = "#61afef" },
+  CopilotNESTitle = { fg = "#e06c75", bold = true },
+  CopilotNESDescription = { fg = "#56b6c2", italic = true },
+  CopilotNESConfidence = { fg = "#d19a66" }
+}
+
+-- 初始化显示控制器
+function M.setup(config)
+  display_state.config = config
+  display_state.namespace_id = api.nvim_create_namespace("copilot_nes")
+  
+  -- 创建高亮组
+  M._create_highlight_groups()
+  
+  logger.info("NES display controller initialized")
+end
+
+-- 创建高亮组
+function M._create_highlight_groups()
+  for group_name, attrs in pairs(highlight_groups) do
+    local cmd = "highlight default " .. group_name
+    for attr, value in pairs(attrs) do
+      if attr == "fg" then
+        cmd = cmd .. " guifg=" .. value
+      elseif attr == "bg" then
+        cmd = cmd .. " guibg=" .. value
+      elseif attr == "bold" then
+        cmd = cmd .. " gui=bold"
+      elseif attr == "italic" then
+        cmd = cmd .. " gui=italic"
+      end
+    end
+    vim.cmd(cmd)
+  end
+end
+
+-- 显示建议
+function M.show_suggestion(suggestion, bufnr)
+  if not suggestion or not suggestion:is_valid() then
+    return false
+  end
+  
+  -- 隐藏之前的建议
+  M.hide_current_suggestion()
+  
+  display_state.current_suggestion = suggestion
+  
+  -- 根据配置选择显示模式
+  local display_type = display_state.config.type
+  
+  if display_type == "float" then
+    M._show_float_window(suggestion, bufnr)
+  elseif display_type == "inline" then
+    M._show_inline_highlight(suggestion, bufnr)
+  elseif display_type == "both" then
+    M._show_float_window(suggestion, bufnr)
+    M._show_inline_highlight(suggestion, bufnr)
+  end
+  
+  -- 设置自动隐藏定时器
+  if display_state.config.timeout > 0 then
+    vim.defer_fn(function()
+      M.hide_current_suggestion()
+    end, display_state.config.timeout)
+  end
+  
+  return true
+end
+
+-- 显示浮动窗口
+function M._show_float_window(suggestion, bufnr)
+  local content = M._format_suggestion_content(suggestion)
+  local width = math.max(40, math.min(80, #content[1] + 4))
+  local height = #content + 2
+  
+  -- 获取光标位置
+  local cursor = api.nvim_win_get_cursor(0)
+  local row = cursor[1]
+  local col = cursor[2]
+  
+  -- 计算窗口位置
+  local win_config = {
+    relative = "cursor",
+    row = 1,
+    col = 0,
+    width = width,
+    height = height,
+    style = "minimal",
+    border = "rounded",
+    focusable = false,
+    zindex = 100
+  }
+  
+  -- 创建缓冲区
+  local float_bufnr = api.nvim_create_buf(false, true)
+  api.nvim_buf_set_lines(float_bufnr, 0, -1, false, content)
+  api.nvim_buf_set_option(float_bufnr, "modifiable", false)
+  api.nvim_buf_set_option(float_bufnr, "filetype", "copilot-nes")
+  
+  -- 创建窗口
+  local win_id = api.nvim_open_win(float_bufnr, false, win_config)
+  
+  -- 设置窗口选项
+  api.nvim_win_set_option(win_id, "winhl", "Normal:CopilotNESText,FloatBorder:CopilotNESBorder")
+  
+  -- 添加语法高亮
+  M._add_float_syntax(float_bufnr)
+  
+  -- 保存窗口引用
+  display_state.active_windows[suggestion.id] = {
+    win_id = win_id,
+    bufnr = float_bufnr
+  }
+  
+  logger.debug("Float window created for suggestion: " .. suggestion.id)
+end
+
+-- 格式化建议内容
+function M._format_suggestion_content(suggestion)
+  local content = {}
+  
+  -- 标题行
+  table.insert(content, "📝 Next Edit Suggestion")
+  table.insert(content, "")
+  
+  -- 描述
+  if suggestion.description and #suggestion.description > 0 then
+    table.insert(content, "Description: " .. suggestion.description)
+  end
+  
+  -- 置信度
+  local confidence_percent = math.floor(suggestion.confidence * 100)
+  table.insert(content, "Confidence: " .. confidence_percent .. "%")
+  
+  -- 建议文本预览
+  if suggestion.new_text and #suggestion.new_text > 0 then
+    table.insert(content, "")
+    table.insert(content, "Suggested change:")
+    
+    -- 限制预览长度
+    local preview = suggestion.new_text
+    if #preview > 50 then
+      preview = preview:sub(1, 47) .. "..."
+    end
+    table.insert(content, "  " .. preview)
+  end
+  
+  -- 操作提示
+  table.insert(content, "")
+  table.insert(content, "Press <C-y> to accept, <C-n> to reject")
+  
+  return content
+end
+
+-- 添加浮动窗口语法高亮
+function M._add_float_syntax(bufnr)
+  local syntax_commands = {
+    "syntax match CopilotNESTitle /📝 Next Edit Suggestion/",
+    "syntax match CopilotNESDescription /Description:.*/",
+    "syntax match CopilotNESConfidence /Confidence:.*/",
+    "syntax region CopilotNESCode start=/Suggested change:/ end=/Press.*/"
+  }
+  
+  for _, cmd in ipairs(syntax_commands) do
+    api.nvim_buf_call(bufnr, function()
+      vim.cmd(cmd)
+    end)
+  end
+end
+
+-- 显示内联高亮
+function M._show_inline_highlight(suggestion, bufnr)
+  local range = suggestion.range
+  if not range then return end
+  
+  local start_line = range.start.line
+  local start_char = range.start.character
+  local end_line = range["end"].line
+  local end_char = range["end"].character
+  
+  -- 添加高亮
+  local highlight_id = api.nvim_buf_add_highlight(
+    bufnr,
+    display_state.namespace_id,
+    "CopilotNESRange",
+    start_line,
+    start_char,
+    end_char
+  )
+  
+  -- 保存高亮引用
+  display_state.active_highlights[suggestion.id] = {
+    bufnr = bufnr,
+    highlight_id = highlight_id,
+    range = range
+  }
+  
+  logger.debug("Inline highlight created for suggestion: " .. suggestion.id)
+end
+
+-- 隐藏当前建议
+function M.hide_current_suggestion()
+  if not display_state.current_suggestion then
+    return
+  end
+  
+  local suggestion_id = display_state.current_suggestion.id
+  
+  -- 隐藏浮动窗口
+  M._hide_float_window(suggestion_id)
+  
+  -- 隐藏内联高亮
+  M._hide_inline_highlight(suggestion_id)
+  
+  display_state.current_suggestion = nil
+  logger.debug("Hidden suggestion: " .. suggestion_id)
+end
+
+-- 隐藏浮动窗口
+function M._hide_float_window(suggestion_id)
+  local window_info = display_state.active_windows[suggestion_id]
+  if window_info then
+    if api.nvim_win_is_valid(window_info.win_id) then
+      api.nvim_win_close(window_info.win_id, true)
+    end
+    if api.nvim_buf_is_valid(window_info.bufnr) then
+      api.nvim_buf_delete(window_info.bufnr, { force = true })
+    end
+    display_state.active_windows[suggestion_id] = nil
+  end
+end
+
+-- 隐藏内联高亮
+function M._hide_inline_highlight(suggestion_id)
+  local highlight_info = display_state.active_highlights[suggestion_id]
+  if highlight_info then
+    api.nvim_buf_clear_namespace(
+      highlight_info.bufnr,
+      display_state.namespace_id,
+      highlight_info.range.start.line,
+      highlight_info.range["end"].line + 1
+    )
+    display_state.active_highlights[suggestion_id] = nil
+  end
+end
+
+-- 隐藏所有显示
+function M.hide_all()
+  -- 隐藏所有浮动窗口
+  for suggestion_id, _ in pairs(display_state.active_windows) do
+    M._hide_float_window(suggestion_id)
+  end
+  
+  -- 隐藏所有内联高亮
+  for suggestion_id, _ in pairs(display_state.active_highlights) do
+    M._hide_inline_highlight(suggestion_id)
+  end
+  
+  display_state.current_suggestion = nil
+end
+
+-- 更新光标位置
+function M.update_cursor_position(bufnr)
+  -- 检查当前建议是否仍然相关
+  if display_state.current_suggestion then
+    local cursor = api.nvim_win_get_cursor(0)
+    local range = display_state.current_suggestion.range
+    
+    if not M._cursor_in_range(cursor, range) then
+      -- 光标移出建议范围，隐藏建议
+      M.hide_current_suggestion()
+    end
+  end
+end
+
+-- 检查光标是否在范围内
+function M._cursor_in_range(cursor, range)
+  if not cursor or not range then return false end
+  
+  local line = cursor[1] - 1 -- 转换为 0 基索引
+  local char = cursor[2]
+  
+  local start_line = range.start.line
+  local start_char = range.start.character
+  local end_line = range["end"].line
+  local end_char = range["end"].character
+  
+  -- 检查行范围
+  if line < start_line or line > end_line then
+    return false
+  end
+  
+  -- 检查字符范围
+  if line == start_line and char < start_char then
+    return false
+  end
+  
+  if line == end_line and char > end_char then
+    return false
+  end
+  
+  return true
+end
+
+return M
+```
+
+### 键盘映射处理器
+
+键盘映射处理器负责处理用户的键盘输入，提供便捷的建议操作方式：
+
+```lua
+-- lua/copilot/nes/handlers.lua
+local M = {}
+
+local manager = require("copilot.nes.manager")
+local display = require("copilot.nes.display")
+local lsp_client = require("copilot.nes.lsp_client")
+
+-- 处理器状态
+local handler_state = {
+  config = {},
+  keymaps_set = false
+}
+
+-- 初始化处理器
+function M.setup(config)
+  handler_state.config = config
+  M._setup_keymaps(config.keymaps)
+  logger.info("NES handlers initialized")
+end
+
+-- 设置键盘映射
+function M._setup_keymaps(keymaps)
+  if handler_state.keymaps_set then
+    return
+  end
+  
+  -- 接受建议
+  if keymaps.accept then
+    vim.keymap.set("n", keymaps.accept, function()
+      M.accept_current_suggestion()
+    end, {
+      desc = "Accept Next Edit Suggestion",
+      silent = true
+    })
+  end
+  
+  -- 拒绝建议
+  if keymaps.reject then
+    vim.keymap.set("n", keymaps.reject, function()
+      M.reject_current_suggestion()
+    end, {
+      desc = "Reject Next Edit Suggestion",
+      silent = true
+    })
+  end
+  
+  -- 下一个建议
+  if keymaps.next then
+    vim.keymap.set("n", keymaps.next, function()
+      M.next_suggestion()
+    end, {
+      desc = "Next Edit Suggestion",
+      silent = true
+    })
+  end
+  
+  -- 上一个建议
+  if keymaps.prev then
+    vim.keymap.set("n", keymaps.prev, function()
+      M.prev_suggestion()
+    end, {
+      desc = "Previous Edit Suggestion",
+      silent = true
+    })
+  end
+  
+  -- 切换 NES 功能
+  if keymaps.toggle then
+    vim.keymap.set("n", keymaps.toggle, function()
+      M.toggle_nes()
+    end, {
+      desc = "Toggle Next Edit Suggestions",
+      silent = true
+    })
+  end
+  
+  handler_state.keymaps_set = true
+  logger.debug("NES keymaps configured")
+end
+
+-- 接受当前建议
+function M.accept_current_suggestion()
+  local nes = require("copilot.nes")
+  local current_suggestion = nes.get_current_suggestion()
+  
+  if not current_suggestion then
+    logger.debug("No current suggestion to accept")
+    return false
+  end
+  
+  local bufnr = vim.api.nvim_get_current_buf()
+  local client_id = nes.get_client_id()
+  
+  if not client_id then
+    logger.error("No LSP client available")
+    return false
+  end
+  
+  -- 应用建议到缓冲区
+  if M._apply_suggestion(current_suggestion, bufnr) then
+    -- 标记建议为已接受
+    manager.accept_suggestion(current_suggestion.id, bufnr)
+    
+    -- 发送接受命令到服务器
+    lsp_client.accept_suggestion(current_suggestion.id, bufnr, client_id)
+    
+    -- 隐藏显示
+    display.hide_current_suggestion()
+    
+    logger.info("Suggestion accepted: " .. current_suggestion.id)
+    return true
+  end
+  
+  return false
+end
+
+-- 应用建议到缓冲区
+function M._apply_suggestion(suggestion, bufnr)
+  local range = suggestion.range
+  local new_text = suggestion.new_text
+  
+  if not range or not new_text then
+    logger.error("Invalid suggestion data")
+    return false
+  end
+  
+  local start_line = range.start.line
+  local start_char = range.start.character
+  local end_line = range["end"].line
+  local end_char = range["end"].character
+  
+  -- 获取当前行内容
+  local lines = vim.api.nvim_buf_get_lines(bufnr, start_line, end_line + 1, false)
+  
+  if #lines == 0 then
+    logger.error("No lines to modify")
+    return false
+  end
+  
+  -- 构建新的行内容
+  local new_lines = {}
+  
+  if start_line == end_line then
+    -- 单行替换
+    local line = lines[1]
+    local before = line:sub(1, start_char)
+    local after = line:sub(end_char + 1)
+    table.insert(new_lines, before .. new_text .. after)
+  else
+    -- 多行替换
+    local first_line = lines[1]:sub(1, start_char) .. new_text
+    local last_line = lines[#lines]:sub(end_char + 1)
+    table.insert(new_lines, first_line .. last_line)
+  end
+  
+  -- 应用更改
+  vim.api.nvim_buf_set_lines(bufnr, start_line, end_line + 1, false, new_lines)
+  
+  return true
+end
+
+-- 拒绝当前建议
+function M.reject_current_suggestion()
+  local nes = require("copilot.nes")
+  local current_suggestion = nes.get_current_suggestion()
+  
+  if not current_suggestion then
+    logger.debug("No current suggestion to reject")
+    return false
+  end
+  
+  local bufnr = vim.api.nvim_get_current_buf()
+  local client_id = nes.get_client_id()
+  
+  if not client_id then
+    logger.error("No LSP client available")
+    return false
+  end
+  
+  -- 标记建议为已拒绝
+  manager.reject_suggestion(current_suggestion.id, bufnr)
+  
+  -- 发送拒绝命令到服务器
+  lsp_client.reject_suggestion(current_suggestion.id, bufnr, client_id)
+  
+  -- 隐藏显示
+  display.hide_current_suggestion()
+  
+  logger.info("Suggestion rejected: " .. current_suggestion.id)
+  return true
+end
+
+-- 切换到下一个建议
+function M.next_suggestion()
+  local nes = require("copilot.nes")
+  local bufnr = vim.api.nvim_get_current_buf()
+  local suggestions = manager.get_suggestions(bufnr)
+  
+  if #suggestions == 0 then
+    logger.debug("No suggestions available")
+    return false
+  end
+  
+  local current_suggestion = nes.get_current_suggestion()
+  local next_index = 1
+  
+  if current_suggestion then
+    -- 找到当前建议的索引
+    for i, suggestion in ipairs(suggestions) do
+      if suggestion.id == current_suggestion.id then
+        next_index = (i % #suggestions) + 1
+        break
+      end
+    end
+  end
+  
+  local next_suggestion = suggestions[next_index]
+  if next_suggestion then
+    display.show_suggestion(next_suggestion, bufnr)
+    logger.debug("Switched to next suggestion: " .. next_suggestion.id)
+    return true
+  end
+  
+  return false
+end
+
+-- 切换到上一个建议
+function M.prev_suggestion()
+  local nes = require("copilot.nes")
+  local bufnr = vim.api.nvim_get_current_buf()
+  local suggestions = manager.get_suggestions(bufnr)
+  
+  if #suggestions == 0 then
+    logger.debug("No suggestions available")
+    return false
+  end
+  
+  local current_suggestion = nes.get_current_suggestion()
+  local prev_index = #suggestions
+  
+  if current_suggestion then
+    -- 找到当前建议的索引
+    for i, suggestion in ipairs(suggestions) do
+      if suggestion.id == current_suggestion.id then
+        prev_index = i == 1 and #suggestions or i - 1
+        break
+      end
+    end
+  end
+  
+  local prev_suggestion = suggestions[prev_index]
+  if prev_suggestion then
+    display.show_suggestion(prev_suggestion, bufnr)
+    logger.debug("Switched to previous suggestion: " .. prev_suggestion.id)
+    return true
+  end
+  
+  return false
+end
+
+-- 切换 NES 功能
+function M.toggle_nes()
+  local nes = require("copilot.nes")
+  local enabled = nes.is_enabled()
+  
+  if enabled then
+    nes.disable()
+    logger.info("NES disabled")
+  else
+    nes.enable()
+    logger.info("NES enabled")
+  end
+  
+  return not enabled
+end
+
+return M
+```
+
+## 配置系统
+
+配置系统是 NES 功能的重要组成部分，它提供了灵活的配置选项，允许用户根据个人偏好和使用场景自定义 NES 功能的行为。
+
+### 配置结构设计
+
+```lua
+-- lua/copilot/nes/config.lua
+local M = {}
+
+-- 默认配置
+local default_config = {
+  -- 基本设置
+  enabled = true,
+  auto_trigger = true,
+  debounce = 500, -- 防抖延迟（毫秒）
+  max_suggestions = 5, -- 最大建议数量
+  
+  -- 显示设置
+  display = {
+    type = "float", -- "float", "inline", "both"
+    auto_show = true, -- 自动显示建议
+    timeout = 5000, -- 建议超时时间（毫秒）
+    
+    -- 浮动窗口设置
+    float = {
+      border = "rounded", -- 边框样式
+      max_width = 80,
+      max_height = 20,
+      zindex = 100
+    },
+    
+    -- 内联高亮设置
+    inline = {
+      highlight_group = "CopilotNESRange",
+      show_description = true
+    }
+  },
+  
+  -- 键盘映射
+  keymaps = {
+    accept = "<C-y>",
+    reject = "<C-n>",
+    next = "<C-]>",
+    prev = "<C-[>",
+    toggle = "<leader>cn",
+    show_info = "<leader>ci"
+  },
+  
+  -- 过滤设置
+  filter = {
+    min_confidence = 0.5, -- 最小置信度
+    max_suggestions_per_line = 1, -- 每行最大建议数
+    exclude_filetypes = { -- 排除的文件类型
+      "help", "alpha", "dashboard", "neo-tree", "Trouble", "lazy"
+    },
+    exclude_buftypes = { -- 排除的缓冲区类型
+      "terminal", "prompt", "nofile"
+    }
+  },
+  
+  -- 性能设置
+  performance = {
+    max_file_size = 1024 * 1024, -- 最大文件大小（字节）
+    cache_size = 100, -- 缓存大小
+    cleanup_interval = 30000 -- 清理间隔（毫秒）
+  },
+  
+  -- 日志设置
+  logging = {
+    level = "info", -- "debug", "info", "warn", "error"
+    file = nil -- 日志文件路径，nil 表示使用默认
+  }
+}
+
+-- 当前配置
+local current_config = {}
+
+-- 初始化配置
+function M.setup(user_config)
+  current_config = vim.tbl_deep_extend("force", default_config, user_config or {})
+  
+  -- 验证配置
+  if not M.validate(current_config) then
+    logger.error("Invalid NES configuration, using defaults")
+    current_config = vim.deepcopy(default_config)
+  end
+  
+  logger.info("NES configuration initialized")
+  return current_config
+end
+
+-- 获取配置
+function M.get(key)
+  if key then
+    return vim.tbl_get(current_config, unpack(vim.split(key, ".", { plain = true })))
+  else
+    return vim.deepcopy(current_config)
+  end
+end
+
+-- 设置配置
+function M.set(key, value)
+  local keys = vim.split(key, ".", { plain = true })
+  local config = current_config
+  
+  for i = 1, #keys - 1 do
+    if not config[keys[i]] then
+      config[keys[i]] = {}
+    end
+    config = config[keys[i]]
+  end
+  
+  config[keys[#keys]] = value
+  
+  -- 验证更新后的配置
+  if not M.validate(current_config) then
+    logger.error("Invalid configuration value for: " .. key)
+    return false
+  end
+  
+  logger.debug("Configuration updated: " .. key .. " = " .. vim.inspect(value))
+  return true
+end
+
+-- 验证配置
+function M.validate(config)
+  -- 验证基本类型
+  if type(config.enabled) ~= "boolean" then
+    logger.error("config.enabled must be boolean")
+    return false
+  end
+  
+  if type(config.auto_trigger) ~= "boolean" then
+    logger.error("config.auto_trigger must be boolean")
+    return false
+  end
+  
+  if type(config.debounce) ~= "number" or config.debounce < 0 then
+    logger.error("config.debounce must be non-negative number")
+    return false
+  end
+  
+  if type(config.max_suggestions) ~= "number" or config.max_suggestions < 1 then
+    logger.error("config.max_suggestions must be positive number")
+    return false
+  end
+  
+  -- 验证显示配置
+  if config.display then
+    local valid_types = { "float", "inline", "both" }
+    if not vim.tbl_contains(valid_types, config.display.type) then
+      logger.error("config.display.type must be one of: " .. table.concat(valid_types, ", "))
+      return false
+    end
+    
+    if type(config.display.timeout) ~= "number" or config.display.timeout < 0 then
+      logger.error("config.display.timeout must be non-negative number")
+      return false
+    end
+  end
+  
+  -- 验证过滤配置
+  if config.filter then
+    if type(config.filter.min_confidence) ~= "number" or 
+       config.filter.min_confidence < 0 or config.filter.min_confidence > 1 then
+      logger.error("config.filter.min_confidence must be between 0 and 1")
+      return false
+    end
+  end
+  
+  return true
+end
+
+-- 重置配置
+function M.reset()
+  current_config = vim.deepcopy(default_config)
+  logger.info("NES configuration reset to defaults")
+  return current_config
+end
+
+-- 导出配置
+function M.export()
+  return vim.inspect(current_config)
+end
+
+-- 导入配置
+function M.import(config_str)
+  local ok, config = pcall(loadstring("return " .. config_str))
+  if not ok or type(config) ~= "table" then
+    logger.error("Invalid configuration string")
+    return false
+  end
+  
+  if M.validate(config) then
+    current_config = config
+    logger.info("Configuration imported successfully")
+    return true
+  else
+    logger.error("Imported configuration is invalid")
+    return false
+  end
+end
+
+return M
+```
+
+### 配置集成到主插件
+
+为了将 NES 配置集成到主 copilot.lua 插件中，我们需要修改主配置文件：
+
+```lua
+-- 在 lua/copilot/config.lua 中添加 NES 配置支持
+
+-- 扩展默认配置
+local original_defaults = {
+  -- 现有配置...
+}
+
+-- 添加 NES 默认配置
+original_defaults.next_edit_suggestions = {
+  enabled = false, -- 默认禁用，让用户主动启用
+  auto_trigger = true,
+  debounce = 500,
+  max_suggestions = 3,
+  display = {
+    type = "float",
+    auto_show = true,
+    timeout = 5000
+  },
+  keymaps = {
+    accept = "<C-y>",
+    reject = "<C-n>",
+    next = "<C-]>",
+    prev = "<C-[>",
+    toggle = "<leader>cn"
+  },
+  filter = {
+    min_confidence = 0.6,
+    exclude_filetypes = { "help", "alpha", "dashboard" }
+  }
+}
+
+-- 扩展 setup 函数
+local original_setup = M.setup
+function M.setup(opts)
+  -- 调用原始 setup
+  local result = original_setup(opts)
+  
+  -- 初始化 NES 配置
+  if opts and opts.next_edit_suggestions then
+    local nes_config = opts.next_edit_suggestions
+    if nes_config.enabled then
+      -- 初始化 NES 功能
+      local nes = require("copilot.nes")
+      nes.setup(nes_config)
+    end
+  end
+  
+  return result
+end
+```
+
+## 安装和配置
+
+### 安装步骤
+
+#### 1. 环境准备
+
+首先确保您的环境满足前置要求：
+
+```bash
+# 检查 Neovim 版本（需要 0.10.0+）
+nvim --version
+
+# 检查 Node.js 版本（需要 v20+）
+node --version
+
+# 安装或更新 GitHub Copilot Language Server
+npm install -g @github/copilot-language-server@latest
+```
+
+#### 2. 插件安装
+
+如果您使用 lazy.nvim 作为插件管理器：
+
+```lua
+-- 在您的 Neovim 配置中添加
+{
+  "zbirenbaum/copilot.lua",
+  cmd = "Copilot",
+  event = "InsertEnter",
+  config = function()
+    require("copilot").setup({
+      -- 现有 copilot.lua 配置...
+      
+      -- 添加 NES 配置
+      next_edit_suggestions = {
+        enabled = true,
+        auto_trigger = true,
+        debounce = 500,
+        max_suggestions = 3,
+        display = {
+          type = "float", -- 或 "inline", "both"
+          auto_show = true,
+          timeout = 5000
+        },
+        keymaps = {
+          accept = "<C-y>",
+          reject = "<C-n>",
+          next = "<C-]>",
+          prev = "<C-[>",
+          toggle = "<leader>cn"
+        },
+        filter = {
+          min_confidence = 0.6,
+          exclude_filetypes = { "help", "alpha", "dashboard" }
+        }
+      }
+    })
+  end,
+}
+```
+
+#### 3. 代码集成
+
+将本指南中提供的代码文件添加到您的 copilot.lua 插件目录中：
+
+```
+lua/copilot/
+├── nes/
+│   ├── init.lua          # NES 主模块
+│   ├── manager.lua       # 建议管理器
+│   ├── display.lua       # 显示控制器
+│   ├── handlers.lua      # 事件处理器
+│   ├── lsp_client.lua    # LSP 客户端
+│   ├── config.lua        # 配置管理
+│   └── protocol_adapter.lua # 协议适配器
+└── lsp/
+    └── init.lua          # 扩展现有 LSP 集成
+```
+
+### 基本配置示例
+
+#### 最小配置
+
+```lua
+require("copilot").setup({
+  next_edit_suggestions = {
+    enabled = true
+  }
+})
+```
+
+#### 推荐配置
+
+```lua
+require("copilot").setup({
+  next_edit_suggestions = {
+    enabled = true,
+    auto_trigger = true,
+    debounce = 300,
+    max_suggestions = 5,
+    display = {
+      type = "both", -- 同时显示浮动窗口和内联高亮
+      auto_show = true,
+      timeout = 8000,
+      float = {
+        border = "rounded",
+        max_width = 60
+      }
+    },
+    keymaps = {
+      accept = "<C-y>",
+      reject = "<C-n>",
+      next = "<Tab>",
+      prev = "<S-Tab>",
+      toggle = "<leader>ct",
+      show_info = "<leader>ci"
+    },
+    filter = {
+      min_confidence = 0.7,
+      max_suggestions_per_line = 1,
+      exclude_filetypes = { 
+        "help", "alpha", "dashboard", "neo-tree", 
+        "Trouble", "lazy", "mason", "notify"
+      }
+    }
+  }
+})
+```
+
+#### 高级配置
+
+```lua
+require("copilot").setup({
+  next_edit_suggestions = {
+    enabled = true,
+    auto_trigger = true,
+    debounce = 200,
+    max_suggestions = 10,
+    display = {
+      type = "float",
+      auto_show = false, -- 手动显示
+      timeout = 0, -- 不自动隐藏
+      float = {
+        border = "double",
+        max_width = 100,
+        max_height = 30,
+        zindex = 200
+      },
+      inline = {
+        highlight_group = "CopilotNESRange",
+        show_description = true
+      }
+    },
+    keymaps = {
+      accept = "<C-CR>",
+      reject = "<C-BS>",
+      next = "<C-j>",
+      prev = "<C-k>",
+      toggle = "<F2>",
+      show_info = "<F3>"
+    },
+    filter = {
+      min_confidence = 0.5,
+      max_suggestions_per_line = 2,
+      exclude_filetypes = {},
+      exclude_buftypes = { "terminal", "prompt" }
+    },
+    performance = {
+      max_file_size = 2 * 1024 * 1024, -- 2MB
+      cache_size = 200,
+      cleanup_interval = 15000
+    },
+    logging = {
+      level = "debug",
+      file = vim.fn.stdpath("log") .. "/copilot-nes.log"
+    }
+  }
+})
+```
+
+
+## 使用指南
+
+### 基本使用流程
+
+#### 1. 启动和初始化
+
+当您打开 Neovim 并开始编辑代码时，NES 功能会自动初始化。您可以通过以下方式验证 NES 是否正常工作：
+
+```vim
+:lua print(require("copilot.nes").is_enabled())
+```
+
+如果返回 `true`，说明 NES 功能已启用。
+
+#### 2. 触发建议
+
+NES 建议会在以下情况下自动触发：
+
+- **文本修改**: 当您修改代码时，NES 会分析上下文并生成相关建议
+- **光标移动**: 移动到不同的代码位置可能触发新的建议
+- **手动触发**: 使用配置的快捷键手动请求建议
+
+#### 3. 查看建议
+
+根据您的配置，建议会以不同方式显示：
+
+**浮动窗口模式**: 建议以浮动窗口形式显示在光标附近，包含详细的建议信息和操作提示。
+
+**内联高亮模式**: 建议的文本范围会被高亮显示，您可以看到哪些代码会被修改。
+
+**混合模式**: 同时显示浮动窗口和内联高亮，提供最完整的信息。
+
+#### 4. 操作建议
+
+使用配置的快捷键操作建议：
+
+- **接受建议**: 默认 `<C-y>`，应用建议到代码中
+- **拒绝建议**: 默认 `<C-n>`，拒绝当前建议
+- **下一个建议**: 默认 `<C-]>`，切换到下一个建议
+- **上一个建议**: 默认 `<C-[>`，切换到上一个建议
+- **切换功能**: 默认 `<leader>cn`，启用/禁用 NES 功能
+
+### 实际使用场景
+
+#### 场景一：错误修复
+
+当您的代码中存在明显的错误时，NES 会提供修复建议：
+
+```python
+# 原始代码（包含拼写错误）
+def calcualte_sum(numbers):
+    return sum(numbres)
+
+# NES 建议修复
+def calculate_sum(numbers):  # 修复函数名拼写
+    return sum(numbers)      # 修复变量名拼写
+```
+
+**操作步骤**:
+1. 将光标移动到错误位置
+2. 等待 NES 建议出现（通常在 500ms 内）
+3. 查看建议内容和置信度
+4. 按 `<C-y>` 接受建议或 `<C-n>` 拒绝
+
+#### 场景二：代码重构
+
+NES 可以帮助您进行代码重构，如变量重命名、函数提取等：
+
+```javascript
+// 原始代码
+function processData(data) {
+    let result = [];
+    for (let i = 0; i < data.length; i++) {
+        if (data[i] > 0) {
+            result.push(data[i] * 2);
+        }
+    }
+    return result;
+}
+
+// NES 建议重构为更现代的写法
+function processData(data) {
+    return data
+        .filter(item => item > 0)
+        .map(item => item * 2);
+}
+```
+
+#### 场景三：代码优化
+
+NES 可以建议性能优化和最佳实践：
+
+```lua
+-- 原始代码
+local function find_item(list, target)
+    for i = 1, #list do
+        if list[i] == target then
+            return i
+        end
+    end
+    return nil
+end
+
+-- NES 建议优化
+local function find_item(list, target)
+    for i, item in ipairs(list) do  -- 使用 ipairs 更高效
+        if item == target then
+            return i
+        end
+    end
+    return nil
+end
+```
+
+### 高级使用技巧
+
+#### 1. 自定义快捷键
+
+您可以根据个人习惯自定义快捷键：
+
+```lua
+next_edit_suggestions = {
+  keymaps = {
+    accept = "<CR>",        -- 使用回车接受
+    reject = "<Esc>",       -- 使用 Esc 拒绝
+    next = "<Tab>",         -- 使用 Tab 切换
+    prev = "<S-Tab>",       -- 使用 Shift+Tab 反向切换
+    toggle = "<F12>",       -- 使用 F12 切换功能
+    show_info = "<leader>?" -- 显示详细信息
+  }
+}
+```
+
+#### 2. 条件过滤
+
+配置智能过滤以提高建议质量：
+
+```lua
+next_edit_suggestions = {
+  filter = {
+    min_confidence = 0.8,  -- 只显示高置信度建议
+    max_suggestions_per_line = 1,  -- 每行最多一个建议
+    exclude_filetypes = {
+      "markdown", "text", "help"  -- 排除文档类型
+    },
+    exclude_patterns = {
+      "%.git/",  -- 排除 git 目录
+      "node_modules/",  -- 排除依赖目录
+      "%.min%.js$"  -- 排除压缩文件
+    }
+  }
+}
+```
+
+#### 3. 性能调优
+
+针对大型项目优化性能：
+
+```lua
+next_edit_suggestions = {
+  performance = {
+    max_file_size = 500 * 1024,  -- 限制文件大小为 500KB
+    debounce = 1000,  -- 增加防抖时间到 1 秒
+    cache_size = 50,  -- 减少缓存大小
+    cleanup_interval = 10000  -- 更频繁的清理
+  }
+}
+```
+
+## 故障排除
+
+### 常见问题及解决方案
+
+#### 问题 1: NES 功能无法启动
+
+**症状**: 配置了 NES 但没有看到任何建议
+
+**可能原因**:
+- GitHub Copilot Language Server 版本过低
+- LSP 客户端未正确连接
+- 配置错误
+
+**解决步骤**:
+
+1. **检查服务器版本**:
+```bash
+npm list -g @github/copilot-language-server
+```
+确保版本为 1.337.0 或更高。
+
+2. **检查 LSP 连接**:
+```vim
+:LspInfo
+```
+确认 copilot LSP 客户端已连接。
+
+3. **检查配置**:
+```lua
+:lua print(vim.inspect(require("copilot.nes.config").get()))
+```
+验证配置是否正确加载。
+
+4. **查看日志**:
+```vim
+:lua print(require("copilot.nes").get_logs())
+```
+
+#### 问题 2: 建议显示异常
+
+**症状**: 建议窗口位置错误或显示不完整
+
+**解决方案**:
+
+1. **重置显示配置**:
+```lua
+require("copilot.nes.config").set("display.type", "float")
+require("copilot.nes.display").refresh()
+```
+
+2. **清除缓存**:
+```lua
+require("copilot.nes").clear_cache()
+```
+
+3. **重新初始化**:
+```lua
+require("copilot.nes").restart()
+```
+
+#### 问题 3: 性能问题
+
+**症状**: 编辑器响应缓慢，特别是在大文件中
+
+**解决方案**:
+
+1. **调整防抖时间**:
+```lua
+require("copilot.nes.config").set("debounce", 1000)
+```
+
+2. **限制文件大小**:
+```lua
+require("copilot.nes.config").set("performance.max_file_size", 100 * 1024)
+```
+
+3. **减少建议数量**:
+```lua
+require("copilot.nes.config").set("max_suggestions", 2)
+```
+
+#### 问题 4: 快捷键冲突
+
+**症状**: NES 快捷键与其他插件冲突
+
+**解决方案**:
+
+1. **重新映射快捷键**:
+```lua
+require("copilot.nes.config").set("keymaps.accept", "<C-CR>")
+require("copilot.nes.config").set("keymaps.reject", "<C-BS>")
+```
+
+2. **禁用冲突的快捷键**:
+```lua
+require("copilot.nes.config").set("keymaps.accept", "")
+```
+
+### 调试工具
+
+#### 1. 日志查看
+
+启用详细日志记录：
+
+```lua
+require("copilot.nes.config").set("logging.level", "debug")
+```
+
+查看日志：
+
+```vim
+:lua require("copilot.nes").show_logs()
+```
+
+#### 2. 状态检查
+
+检查 NES 状态：
+
+```lua
+:lua print(vim.inspect(require("copilot.nes").get_status()))
+```
+
+#### 3. 诊断命令
+
+运行诊断：
+
+```vim
+:CopilotNESDiagnose
+```
+
+这个命令会检查：
+- LSP 服务器连接状态
+- 配置有效性
+- 权限和网络连接
+- 性能指标
+
+## 性能优化
+
+### 优化策略
+
+#### 1. 智能防抖
+
+实现自适应防抖机制，根据用户输入频率动态调整延迟：
+
+```lua
+-- 在 manager.lua 中添加自适应防抖
+local adaptive_debounce = {
+  base_delay = 500,
+  max_delay = 2000,
+  min_delay = 100,
+  recent_changes = {},
+  window_size = 10
+}
+
+function adaptive_debounce:calculate_delay()
+  local now = vim.loop.hrtime()
+  local recent_count = 0
+  
+  -- 清理过期记录
+  for i = #self.recent_changes, 1, -1 do
+    if now - self.recent_changes[i] > 5000000000 then -- 5秒
+      table.remove(self.recent_changes, i)
+    else
+      recent_count = recent_count + 1
+    end
+  end
+  
+  -- 根据频率调整延迟
+  if recent_count > 5 then
+    return math.min(self.max_delay, self.base_delay * 2)
+  elseif recent_count < 2 then
+    return math.max(self.min_delay, self.base_delay / 2)
+  else
+    return self.base_delay
+  end
+end
+
+function adaptive_debounce:record_change()
+  table.insert(self.recent_changes, vim.loop.hrtime())
+  if #self.recent_changes > self.window_size then
+    table.remove(self.recent_changes, 1)
+  end
+end
+```
+
+#### 2. 建议缓存
+
+实现智能缓存机制，避免重复请求：
+
+```lua
+-- 在 manager.lua 中添加缓存机制
+local suggestion_cache = {
+  cache = {},
+  max_size = 100,
+  ttl = 30000 -- 30秒
+}
+
+function suggestion_cache:get_key(bufnr, position, context)
+  return string.format("%d:%d:%d:%s", bufnr, position.line, position.character, 
+                      vim.fn.sha256(context))
+end
+
+function suggestion_cache:get(key)
+  local entry = self.cache[key]
+  if entry and (vim.loop.hrtime() - entry.timestamp) < (self.ttl * 1000000) then
+    return entry.suggestions
+  end
+  return nil
+end
+
+function suggestion_cache:set(key, suggestions)
+  -- 清理过期条目
+  self:cleanup()
+  
+  -- 添加新条目
+  self.cache[key] = {
+    suggestions = suggestions,
+    timestamp = vim.loop.hrtime()
+  }
+  
+  -- 限制缓存大小
+  if vim.tbl_count(self.cache) > self.max_size then
+    self:evict_oldest()
+  end
+end
+
+function suggestion_cache:cleanup()
+  local now = vim.loop.hrtime()
+  for key, entry in pairs(self.cache) do
+    if (now - entry.timestamp) >= (self.ttl * 1000000) then
+      self.cache[key] = nil
+    end
+  end
+end
+```
+
+#### 3. 异步处理
+
+使用 Neovim 的异步 API 避免阻塞：
+
+```lua
+-- 在 lsp_client.lua 中实现异步处理
+function M.request_suggestions_async(bufnr, client_id, callback)
+  vim.schedule(function()
+    local client = vim.lsp.get_client_by_id(client_id)
+    if not client then
+      callback(nil, "LSP client not found")
+      return
+    end
+    
+    -- 异步获取文档信息
+    vim.defer_fn(function()
+      local uri = vim.uri_from_bufnr(bufnr)
+      local position = M._get_cursor_position()
+      
+      local params = {
+        textDocument = { uri = uri },
+        position = position
+      }
+      
+      client.request("textDocument/nextEditSuggestions", params, function(err, result)
+        vim.schedule(function()
+          callback(result, err)
+        end)
+      end, bufnr)
+    end, 0)
+  end)
+end
+```
+
+#### 4. 内存管理
+
+实现自动内存清理：
+
+```lua
+-- 在 manager.lua 中添加内存管理
+local memory_manager = {
+  cleanup_timer = nil,
+  cleanup_interval = 30000, -- 30秒
+  max_memory_usage = 50 * 1024 * 1024 -- 50MB
+}
+
+function memory_manager:start()
+  if self.cleanup_timer then
+    return
+  end
+  
+  self.cleanup_timer = vim.fn.timer_start(self.cleanup_interval, function()
+    self:cleanup()
+  end, { ["repeat"] = -1 })
+end
+
+function memory_manager:cleanup()
+  -- 清理过期建议
+  for bufnr, suggestions in pairs(manager_state.suggestions) do
+    local valid_suggestions = {}
+    for _, suggestion in ipairs(suggestions) do
+      if not suggestion:is_expired(30) then -- 30秒过期
+        table.insert(valid_suggestions, suggestion)
+      end
+    end
+    manager_state.suggestions[bufnr] = valid_suggestions
+  end
+  
+  -- 清理缓存
+  suggestion_cache:cleanup()
+  
+  -- 强制垃圾回收
+  if self:get_memory_usage() > self.max_memory_usage then
+    collectgarbage("collect")
+  end
+end
+
+function memory_manager:get_memory_usage()
+  return collectgarbage("count") * 1024
+end
+```
+
+### 性能监控
+
+#### 1. 性能指标收集
+
+```lua
+-- 在 manager.lua 中添加性能监控
+local performance_monitor = {
+  metrics = {
+    request_count = 0,
+    request_time_total = 0,
+    suggestion_count = 0,
+    cache_hits = 0,
+    cache_misses = 0
+  },
+  start_time = vim.loop.hrtime()
+}
+
+function performance_monitor:record_request(duration)
+  self.metrics.request_count = self.metrics.request_count + 1
+  self.metrics.request_time_total = self.metrics.request_time_total + duration
+end
+
+function performance_monitor:record_suggestions(count)
+  self.metrics.suggestion_count = self.metrics.suggestion_count + count
+end
+
+function performance_monitor:record_cache_hit()
+  self.metrics.cache_hits = self.metrics.cache_hits + 1
+end
+
+function performance_monitor:record_cache_miss()
+  self.metrics.cache_misses = self.metrics.cache_misses + 1
+end
+
+function performance_monitor:get_stats()
+  local uptime = (vim.loop.hrtime() - self.start_time) / 1000000000
+  local avg_request_time = self.metrics.request_count > 0 and 
+                          (self.metrics.request_time_total / self.metrics.request_count) or 0
+  local cache_hit_rate = (self.metrics.cache_hits + self.metrics.cache_misses) > 0 and
+                        (self.metrics.cache_hits / (self.metrics.cache_hits + self.metrics.cache_misses)) or 0
+  
+  return {
+    uptime = uptime,
+    requests_per_second = self.metrics.request_count / uptime,
+    average_request_time = avg_request_time,
+    total_suggestions = self.metrics.suggestion_count,
+    cache_hit_rate = cache_hit_rate,
+    memory_usage = collectgarbage("count") * 1024
+  }
+end
+```
+
+#### 2. 性能报告
+
+```vim
+" 添加用户命令查看性能报告
+command! CopilotNESPerf lua require("copilot.nes").show_performance_report()
+```
+
+```lua
+-- 实现性能报告函数
+function M.show_performance_report()
+  local stats = performance_monitor:get_stats()
+  
+  local report = {
+    "=== Copilot NES Performance Report ===",
+    "",
+    string.format("Uptime: %.2f seconds", stats.uptime),
+    string.format("Requests per second: %.2f", stats.requests_per_second),
+    string.format("Average request time: %.2f ms", stats.average_request_time),
+    string.format("Total suggestions: %d", stats.total_suggestions),
+    string.format("Cache hit rate: %.2f%%", stats.cache_hit_rate * 100),
+    string.format("Memory usage: %.2f MB", stats.memory_usage / 1024 / 1024),
+    "",
+    "=== Configuration ===",
+    string.format("Debounce: %d ms", config.get("debounce")),
+    string.format("Max suggestions: %d", config.get("max_suggestions")),
+    string.format("Display type: %s", config.get("display.type")),
+    string.format("Auto trigger: %s", config.get("auto_trigger") and "enabled" or "disabled")
+  }
+  
+  -- 显示报告
+  local bufnr = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, report)
+  vim.api.nvim_buf_set_option(bufnr, "modifiable", false)
+  vim.api.nvim_buf_set_option(bufnr, "filetype", "copilot-nes-report")
+  
+  local win_id = vim.api.nvim_open_win(bufnr, true, {
+    relative = "editor",
+    width = 60,
+    height = #report + 2,
+    row = math.floor((vim.o.lines - #report) / 2),
+    col = math.floor((vim.o.columns - 60) / 2),
+    style = "minimal",
+    border = "rounded",
+    title = " Performance Report ",
+    title_pos = "center"
+  })
+end
+```
+
+## 扩展开发
+
+### 自定义建议处理器
+
+您可以开发自定义的建议处理器来扩展 NES 功能：
+
+```lua
+-- lua/copilot/nes/custom_processor.lua
+local M = {}
+
+-- 自定义处理器接口
+local CustomProcessor = {}
+CustomProcessor.__index = CustomProcessor
+
+function CustomProcessor:new(name, config)
+  local obj = {
+    name = name,
+    config = config or {},
+    enabled = true
+  }
+  setmetatable(obj, self)
+  return obj
+end
+
+-- 处理建议的主要方法
+function CustomProcessor:process(suggestions, context)
+  -- 实现自定义处理逻辑
+  local processed = {}
+  
+  for _, suggestion in ipairs(suggestions) do
+    if self:should_process(suggestion, context) then
+      local enhanced = self:enhance_suggestion(suggestion, context)
+      table.insert(processed, enhanced)
+    end
+  end
+  
+  return processed
+end
+
+-- 判断是否应该处理该建议
+function CustomProcessor:should_process(suggestion, context)
+  -- 实现自定义过滤逻辑
+  return true
+end
+
+-- 增强建议内容
+function CustomProcessor:enhance_suggestion(suggestion, context)
+  -- 实现建议增强逻辑
+  return suggestion
+end
+
+-- 注册自定义处理器
+function M.register_processor(processor)
+  local manager = require("copilot.nes.manager")
+  manager.add_processor(processor)
+end
+
+return M
+```
+
+### 插件集成示例
+
+#### 与 nvim-cmp 集成
+
+```lua
+-- lua/copilot/nes/integrations/cmp.lua
+local M = {}
+
+function M.setup()
+  local cmp = require("cmp")
+  local nes = require("copilot.nes")
+  
+  -- 添加 NES 作为 cmp 源
+  local source = {}
+  
+  function source:get_trigger_characters()
+    return { " ", "\t", "\n" }
+  end
+  
+  function source:complete(params, callback)
+    local bufnr = vim.api.nvim_get_current_buf()
+    local suggestions = nes.get_suggestions(bufnr)
+    
+    local items = {}
+    for _, suggestion in ipairs(suggestions) do
+      table.insert(items, {
+        label = suggestion.description or "NES Suggestion",
+        kind = cmp.lsp.CompletionItemKind.Text,
+        detail = suggestion.new_text,
+        documentation = {
+          kind = "markdown",
+          value = string.format("**Confidence:** %.0f%%\n\n%s", 
+                               suggestion.confidence * 100, 
+                               suggestion.description or "")
+        },
+        data = { suggestion_id = suggestion.id }
+      })
+    end
+    
+    callback({ items = items })
+  end
+  
+  function source:execute(completion_item, callback)
+    local suggestion_id = completion_item.data.suggestion_id
+    nes.accept_suggestion(suggestion_id)
+    callback()
+  end
+  
+  -- 注册源
+  cmp.register_source("copilot_nes", source)
+end
+
+return M
+```
+
+### API 文档
+
+#### 核心 API
+
+```lua
+-- 主要 API 接口
+local nes = require("copilot.nes")
+
+-- 启用/禁用功能
+nes.enable()
+nes.disable()
+nes.toggle()
+
+-- 建议操作
+nes.request_suggestions(bufnr)
+nes.get_suggestions(bufnr)
+nes.accept_suggestion(suggestion_id, bufnr)
+nes.reject_suggestion(suggestion_id, bufnr)
+
+-- 状态查询
+nes.is_enabled()
+nes.get_status()
+nes.get_stats()
+
+-- 配置管理
+nes.get_config(key)
+nes.set_config(key, value)
+nes.reset_config()
+
+-- 事件监听
+nes.on("suggestion_received", callback)
+nes.on("suggestion_accepted", callback)
+nes.on("suggestion_rejected", callback)
+```
+
+#### 事件系统
+
+```lua
+-- 事件监听示例
+require("copilot.nes").on("suggestion_received", function(suggestions, bufnr)
+  print(string.format("Received %d suggestions for buffer %d", #suggestions, bufnr))
+end)
+
+require("copilot.nes").on("suggestion_accepted", function(suggestion, bufnr)
+  print("Accepted suggestion: " .. suggestion.description)
+end)
+```
+
+## 总结
+
+本指南详细介绍了如何在 zbirenbaum/copilot.lua 插件中集成 GitHub Copilot Language Server 的 Next Edit Suggestions 功能。通过模块化的架构设计、完整的代码实现和详细的配置说明，您可以成功地将这一强大的功能添加到您的 Neovim 编辑环境中。
+
+### 主要特性
+
+- **智能预测性编辑**: 基于上下文的代码修改建议
+- **多种显示模式**: 支持浮动窗口、内联高亮和混合显示
+- **灵活的配置系统**: 丰富的配置选项满足不同需求
+- **高性能设计**: 异步处理、智能缓存和内存管理
+- **可扩展架构**: 支持自定义处理器和插件集成
+
+### 后续发展
+
+随着 GitHub Copilot Language Server 的不断发展，NES 功能也会持续改进。建议定期更新相关组件并关注新功能的发布。
+
+如果您在使用过程中遇到问题或有改进建议，欢迎参与开源社区的讨论和贡献。
+
+---
+
+**注意**: 本指南基于当前可用的技术信息编写。由于 GitHub Copilot Language Server 的 Next Edit Suggestions 功能仍在发展中，某些实现细节可能需要根据实际的 API 规范进行调整。建议在实施前查阅最新的官方文档和 API 规范。
+

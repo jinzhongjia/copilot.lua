@@ -71,6 +71,7 @@ function M.enable()
   c.setup()
   require("copilot.panel").setup()
   require("copilot.suggestion").setup()
+  require("copilot.nes").setup()
 end
 
 function M.disable()
@@ -78,6 +79,7 @@ function M.disable()
   c.teardown()
   require("copilot.panel").teardown()
   require("copilot.suggestion").teardown()
+  require("copilot.nes").teardown()
 end
 
 return M

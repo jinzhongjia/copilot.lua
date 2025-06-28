@@ -102,6 +102,11 @@ function M.get_execute_command()
   }
 end
 
+---@return table
+function M.get_workspace_commands()
+  return require("copilot.lsp.commands").get_workspace_commands()
+end
+
 ---@param node_command? string
 ---@param custom_server_path? string
 ---@return boolean

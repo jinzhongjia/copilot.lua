@@ -15,6 +15,21 @@ function M.get_handlers()
     ["window/showDocument"] = util.show_document,
   }
 
+  -- Add NES handlers if enabled
+  local nes_config = config.next_edit_suggestions
+  if nes_config and nes_config.enabled then
+    local nes = require("copilot.nes")
+    handlers = vim.tbl_extend("force", handlers, {
+      ["textDocument/publishNextEditSuggestions"] = function(err, result, ctx, config_param)
+        if err then
+          logger.error("NES publishNextEditSuggestions error:", err)
+          return
+        end
+        nes.handle_suggestions(result, ctx.client_id, ctx.bufnr)
+      end,
+    })
+  end
+
   -- optional handlers
   local logger_conf = config.logger
   if logger_conf.trace_lsp ~= "off" then
